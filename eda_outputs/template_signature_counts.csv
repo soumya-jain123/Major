@@ -1,0 +1,16 @@
+,n_reports
+"('narrative', 'clinical_history', 'comparison', 'impression', 'summary')",60750
+"('narrative', 'history', 'comparison', 'impression', 'summary')",26739
+"('narrative', 'clinical_history', 'comparison', 'procedure_comments', 'findings', 'impression')",25397
+"('narrative', 'clinical_history', 'comparison', 'impression', 'end_of_impression', 'summary')",22020
+"('narrative', 'comparison', 'impression', 'end_of_impression', 'summary')",20057
+"('narrative', 'comparison', 'impression', 'summary')",10347
+"('narrative', 'clinical_history', 'comparison', 'findings', 'impression', 'summary')",9342
+"('narrative', 'clinical_history', 'comparison', 'findings', 'impression', 'end_of_impression', 'summary')",6080
+"('narrative', 'comparison', 'findings', 'impression', 'end_of_impression', 'summary')",5475
+"('narrative', 'clinical_history', 'comparison', 'technique', 'impression', 'summary')",3667
+"('narrative', 'history', 'comparison', 'impression', 'end_of_impression', 'summary')",3485
+"('narrative', 'history', 'comparison', 'findings', 'impression', 'summary')",3233
+"('narrative', 'clinical_history', 'comparison', 'impression', 'end_of_impression')",2324
+"('narrative', 'impression', 'end_of_impression', 'summary')",1926
+"('narrative', 'comparison', 'impression', 'end_of_impression')",1866

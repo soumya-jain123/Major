@@ -1,0 +1,12 @@
+section,n_present,pct_present,words_mean,words_median,words_p90,words_p99,words_max,chars_mean
+report,223462,100.0,117.4,110.0,164.0,261.0,828,842.4
+section_narrative,223434,100.0,5.7,5.0,9.0,19.0,146,40.5
+section_clinical_history,138866,62.1,6.9,6.0,11.0,20.0,133,49.1
+section_history,38192,17.1,6.6,6.0,11.0,19.0,199,45.7
+section_comparison,213125,95.4,2.8,1.0,7.0,14.0,225,22.9
+section_technique,10732,4.8,7.0,7.0,9.0,22.0,257,43.9
+section_procedure_comments,25669,11.5,5.4,5.0,5.0,17.0,94,31.6
+section_findings,59469,26.6,60.8,54.0,104.0,187.0,509,428.7
+section_impression,223317,99.9,41.8,38.0,69.0,112.0,425,302.9
+section_end_of_impression,73738,33.0,1.6,0.0,1.0,24.0,337,11.8
+section_summary,189648,84.9,16.3,19.0,28.0,30.0,325,120.0

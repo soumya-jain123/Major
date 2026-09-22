@@ -1,0 +1,9 @@
+decision,recommendation
+Retrieval unit,section_findings + section_impression (falls back to full `report` when either is missing)
+Corpus scope,"train split only, after exact-duplicate removal (Section 13)"
+Chunking,Single chunk per report in most cases (Section 9 token analysis) — verify the >512-token tail and split only those
+Text normalization,Collapse de-id placeholders (Section 12) to a single token before embedding
+Excluded fields,"section_technique, section_comparison — near-constant boilerplate (Section 13), keep as structured metadata instead of embedding"
+Image-to-text key,patient_id/study_id/view_id parsed from path_to_image (Section 5); decide frontal-only vs. all-views policy (Section 6)
+Fairness slicing,"Evaluate generation quality stratified by race, sex, insurance_type, interpreter_needed (Section 8)"
+Leakage guard,Confirm zero cross-split patients (Section 7) before finalizing the index
