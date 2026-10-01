@@ -13,9 +13,9 @@
 | Section | Key Content |
 |---|---|
 | **Project Title** | A Multimodal RAG Framework for Automated Chest X-Ray Report Generation |
-| **Primary Dataset** | **MIMIC-CXR** (chest X-rays + free-text reports, multi-view + longitudinal) |
-| **Secondary Dataset** | IU X-Ray (Open-i) — for early prototyping and cross-dataset comparison |
-| **CheXpert Plus** | Used for EDA and supplementary embedding/label data |
+| **Primary Dataset** | **CheXpert** (with the report-bearing CheXpert Plus release used where paired report text is required) |
+| **Secondary Dataset** | None planned initially — keep the pipeline centered on CheXpert; external datasets are optional future validation only |
+| **CheXpert / CheXpert Plus** | Primary image + pathology-label source; use the paired report fields from the report-bearing release for report generation |
 | **Output Format** | Structured: `Findings` followed by `Impression` |
 | **Primary Evidence** | Current study always dominates; historical/retrieved = supporting context only |
 | **Evidence Priority** | Current visual > Historical (genuine) > Retrieved similar cases > Clinical knowledge |
@@ -77,7 +77,9 @@
 | 14 pathology labels, severe class imbalance | Use weighted loss / sampling in contrastive training |
 | Exact duplicate reports: 4 | Remove before indexing |
 | Official valid = 234 images only | Must create own 80/10/10 patient-level split |
-| Zero cross-split patient leakage | CheXpert Plus splits are clean |
+| Zero cross-split patient leakage | CheXpert Plus splits are clean; still recreate and verify our own patient-level 80/10/10 split for the final experiment |
+
+> **Dataset decision:** The implementation is now centered on **CheXpert**. Because automated report generation requires paired free-text references, the report-bearing **CheXpert Plus** release will be used whenever the experiment requires `Findings`/`Impression` text. If only the original label-only CheXpert release is available, report-generation metrics such as BLEU/ROUGE/BERTScore cannot be computed against reference reports; in that case the project must switch to label-grounded generation/evaluation rather than silently treating labels as reports.
 
 ---
 
@@ -88,7 +90,7 @@
 PIPELINE 1: Knowledge Base Construction
 ===============================================================
 
-MIMIC-CXR + IU X-Ray (training studies)
+CheXpert (report-bearing CheXpert Plus release where applicable)
               |
               v
      Study-Level Organization
@@ -104,7 +106,7 @@ MIMIC-CXR + IU X-Ray (training studies)
               |
      +---------+---------+
      v                   v
- View Embeddings   Temporal Embeddings
+ View Embeddings   Study Metadata
      +----+----+
           |
           v
@@ -157,7 +159,7 @@ New Patient Study (test time)
    Retrieved Evidence:
    - Top-K similar study reports
    - Anatomical / clinical context
-   - Historical prior reports (if available)
+   - Prior reports only if the selected CheXpert release contains valid longitudinal links
               |
               v
    RAG Prompt Construction
@@ -191,9 +193,9 @@ New Patient Study (test time)
 
 **Role:** ML Engineer (Vision + Training)
 
-#### Phase 1: Data Pipeline (Days 1–4)
-- [ ] Access MIMIC-CXR (PhysioNet) — download CSVs + images (or a 20K-study subset)
-- [ ] Also keep CheXpert Plus as supplementary (already EDA'd)
+#### Phase 1: Data Pipeline (Days 1–2)
+- [ ] Prepare the CheXpert image/label tables and paired report metadata; use a manageable study subset for the first end-to-end run
+- [ ] Use the existing CheXpert Plus EDA as the starting point for the selected CheXpert data release
 - [ ] Build study-level records: `patient_id`, `study_id`, `image_paths[]`, `view_types[]`, `findings`, `impression`, `study_date`, `prior_study_ids[]`
 - [ ] Apply patient-level 80/10/10 train/val/test split — strictly no patient leakage across splits
 - [ ] De-id normalization: replace `___` with `[DEID]` in all text
@@ -201,20 +203,20 @@ New Patient Study (test time)
 - [ ] Handle sparsity: if `section_findings` absent → use `section_impression` as text target
 - [ ] Save clean `dataset_train.csv`, `dataset_val.csv`, `dataset_test.csv`
 
-#### Phase 2: Image Preprocessing (Days 3–5, overlap)
+#### Phase 2: Image Preprocessing (Days 2–4, overlap)
 - [ ] Resize to 224x224 (or 512x512 per encoder requirement)
 - [ ] Normalize pixel intensities per encoder spec
 - [ ] Build PyTorch `ChestXRayDataset` class
 - [ ] Tag each image: `frontal` vs `lateral`, `AP` vs `PA`
 - [ ] Validate loading success rate; log failures
 
-#### Phase 3: Medical Vision Encoder (Days 5–8)
+#### Phase 3: Medical Vision Encoder (Days 4–5)
 - [ ] Select encoder: **BioViL-T** (preferred — supports temporal) or **MedCLIP** (simpler fallback)
 - [ ] Load pretrained weights from HuggingFace
 - [ ] Batch inference → extract embeddings, save as `.npy` / HDF5
 - [ ] If multiple views in one study: keep separately before fusion step
 
-#### Phase 4: Contrastive Learning Training (Days 7–11)
+#### Phase 4: Contrastive Learning Training (Days 5–7)
 - [ ] Build paired dataset: `(fused_image_embedding, text_embedding)` per study
 - [ ] Implement InfoNCE / NT-Xent loss
 - [ ] Generate hard negatives: visually similar studies with different pathology labels
@@ -231,7 +233,7 @@ New Patient Study (test time)
 
 **Role:** ML Engineer (NLP + Retrieval)
 
-#### Phase 1: Medical Text Encoder (Days 1–5)
+#### Phase 1: Medical Text Encoder (Days 1–2)
 - [ ] Select encoder: **BioLinkBERT-large** or **ClinicalBERT** or **RadBERT**
 - [ ] Encode `section_impression` (fallback: `section_findings`) for all training records
 - [ ] Batch encode → save embeddings to disk
@@ -240,10 +242,11 @@ New Patient Study (test time)
 #### Phase 2: Spatial-Temporal Fusion (Days 4–6, coordinate with A)
 - [ ] View fusion: concat frontal + lateral embeddings → project to shared dim
 - [ ] Graceful fallback if only frontal available
-- [ ] Temporal context: use `patient_report_date_order` / `study_date` to tag historical studies
-- [ ] Historical study embedding = auxiliary context (not primary)
+- [ ] Temporal context: use patient/study identifiers and study dates only when valid longitudinal links are present in the selected CheXpert release
+- [ ] Treat any valid prior-study embedding as auxiliary context, never as the primary evidence source
+- [ ] If no valid longitudinal links are available, disable the temporal branch and report this as a dataset limitation
 
-#### Phase 3: FAISS Vector DB (Days 5–8)
+#### Phase 3: FAISS Vector DB (Days 3–5)
 - [ ] Install `faiss-cpu` (or `faiss-gpu` if GPU available)
 - [ ] Index joint embeddings (post-contrastive, coordinate with A)
 - [ ] Metadata per indexed item: `study_id`, `patient_id`, `split`, `impression`, `findings`, `pathology_labels`, `view_type`, `study_date`
@@ -251,7 +254,7 @@ New Patient Study (test time)
 - [ ] Implement top-K similarity search function
 - [ ] Evaluate retrieval independently: Recall@K, Precision@K, MRR on val set
 
-#### Phase 4: RAG Prompt + LLM (Days 7–10)
+#### Phase 4: RAG Prompt + LLM (Days 5–7)
 - [ ] Choose LLM: **Mistral-7B-Instruct** via Ollama (local, free) or **GPT-4o-mini** (API, capped)
 - [ ] Design structured prompt:
   ```
@@ -284,13 +287,13 @@ New Patient Study (test time)
 
 **Role:** Research Engineer (Evaluation + Documentation)
 
-#### Phase 1: EDA Review & Dataset Documentation (Days 1–3)
+#### Phase 1: EDA Review & Dataset Documentation (Days 1–2)
 - [ ] Review all existing EDA notebooks (`chexpert_plus_core_table_eda.ipynb`, etc.)
-- [ ] Extract key statistics for slides (223K records, 64K patients, section coverage, pathology distribution)
-- [ ] Document dataset decision: MIMIC-CXR (primary) vs CheXpert Plus (supplementary EDA)
+- [ ] Extract CheXpert statistics for slides: study/image counts, patient counts, 14 pathology labels, view distribution, report coverage and class imbalance
+- [ ] Document the dataset decision: CheXpert is the primary dataset; the report-bearing CheXpert Plus release supplies paired text where required
 - [ ] Finalize label strategy: `report.csv` for recall, `impression.csv` for precision
 
-#### Phase 2: Evaluation Framework (Days 3–8)
+#### Phase 2: Evaluation Framework (Days 2–6)
 - [ ] **Language metrics:**
   - BLEU-1/2/4 (`sacrebleu`)
   - ROUGE-L (`rouge-score`)
@@ -309,7 +312,7 @@ New Patient Study (test time)
 - [ ] Build evaluation runner: `evaluate(generated_report, reference_report)` → score dict
 - [ ] Build retrieval evaluator: `evaluate_retrieval(query_embedding, relevant_study_ids)` → metrics
 
-#### Phase 3: Baseline & Ablation Experiments (Days 7–10)
+#### Phase 3: Baseline & Ablation Experiments (Days 5–8)
 Run on the same val/test set, same protocol:
 
 | Experiment | Config | Expected Metric |
@@ -319,10 +322,10 @@ Run on the same val/test set, same protocol:
 | Experiment C | Joint contrastive + retrieval | Improved Recall@K |
 | Experiment D | C + RAG | Improved BLEU/CheXbert F1 |
 | Experiment E | D + multi-view fusion | Marginal improvement |
-| Experiment F | E + temporal context | Improvement on longitudinal cases |
+| Experiment F | E + temporal context, only where valid longitudinal links exist | Evaluate interval-change cases only |
 | **Full Model** | All components | Best clinical + factuality scores |
 
-#### Phase 4: Presentation & Report (Days 9–11)
+#### Phase 4: Presentation & Report (Days 8–9)
 - [ ] Compile all metric results into comparison table
 - [ ] Build architecture diagram (2 pipelines: KB construction + RAG generation)
 - [ ] Prepare live demo: pick 3–5 test X-rays → show retrieved cases + generated report
@@ -333,23 +336,19 @@ Run on the same val/test set, same protocol:
 
 ---
 
-## 📅 Day-by-Day Gantt (Sep 28 → Oct 10)
+## 📅 Revised Day-by-Day Gantt (Oct 2 → Oct 10)
 
 | Day | Date | Person A | Person B | Person C |
 |---|---|---|---|---|
-| 1 | Sep 28 | MIMIC-CXR download + CSV cleaning | Text encoder setup (BioLinkBERT) | EDA review + slides template |
-| 2 | Sep 29 | Study-level table building + patient splits | Encode impressions (100 samples test) | Dataset decision doc + label strategy |
-| 3 | Sep 30 | De-id normalization + split verification | View fusion design | Evaluation framework scaffold |
-| 4 | Oct 1 | Image preprocessing + PyTorch Dataset | FAISS setup + indexing plan | BLEU + ROUGE-L implementation |
-| 5 | Oct 2 | BioViL-T pretrained inference | Retrieval function + top-K test | METEOR + BERTScore |
-| 6 | Oct 3 | Embedding extraction + save to disk | Retrieval quality eval (Recall@K, MRR) | CheXbert F1 setup |
-| 7 | Oct 4 | Contrastive training begins | RAG prompt design + LLM setup | Evaluation runner complete + Baseline A |
-| 8 | Oct 5 | Training + hard negative generation | LLM integration + test 20 cases | Baseline B eval |
-| 9 | Oct 6 | Checkpoint eval + Recall@K on val | Full RAG pipeline end-to-end | Experiments C + D eval |
-| 10 | Oct 7 | Integration + embedding handoff to B | Integration + FAISS reindex w/ joint emb | Demo preparation (3–5 test cases) |
-| 11 | Oct 8 | Bug fixes + tuning | Bug fixes + generation quality check | Slides + comparison table |
-| 12 | Oct 9 | Final model checkpoint | Final RAG pipeline | Presentation polish + rehearsal |
-| 13 | Oct 10 | **PRESENTATION** | **PRESENTATION** | **PRESENTATION** |
+| 1 | Oct 2 | Freeze CheXpert data version; build study/image table | Text encoder setup; test 100 report records | Finalize EDA + 14-label distribution |
+| 2 | Oct 3 | Patient-level 80/10/10 split + leakage check | Encode impressions + build text embedding store | Retrieval/evaluation scaffold |
+| 3 | Oct 4 | Image preprocessing + PyTorch Dataset | FAISS setup + baseline retrieval | BLEU + ROUGE-L + BERTScore |
+| 4 | Oct 5 | BioViL-T/MedCLIP embedding extraction | Top-K retrieval + metadata pipeline | CheXbert evaluation setup |
+| 5 | Oct 6 | Contrastive training + hard negatives | RAG prompt + LLM integration | Baseline A/B evaluation |
+| 6 | Oct 7 | Contrastive checkpoint evaluation | End-to-end RAG pipeline | Experiments C/D + factuality checks |
+| 7 | Oct 8 | Multi-view fusion + final embedding handoff | FAISS re-index + generation quality checks | Experiments E/F where applicable + demo cases |
+| 8 | Oct 9 | Final checkpoint + bug fixes | Final RAG pipeline + reproducibility run | Final metrics, comparison table, slides |
+| 9 | Oct 10 | **PRESENTATION** | **PRESENTATION** | **PRESENTATION** |
 
 ---
 
@@ -357,8 +356,8 @@ Run on the same val/test set, same protocol:
 
 | Component | Recommended Tool |
 |---|---|
-| Primary Dataset | MIMIC-CXR (PhysioNet) + CheXpert Plus (supplementary) |
-| Secondary Dataset | IU X-Ray (Open-i) for early prototyping |
+| Primary Dataset | CheXpert / CheXpert Plus (report-bearing release) |
+| Secondary Dataset | None initially; optional external validation later |
 | Vision Encoder | `BioViL-T` (HuggingFace: `microsoft/BioViL-T`) |
 | Text Encoder | `BioLinkBERT-large` or `emilyalsentzer/Bio_ClinicalBERT` |
 | Contrastive Training | PyTorch + custom InfoNCE / NT-Xent |
@@ -398,14 +397,14 @@ Run on the same val/test set, same protocol:
 
 | # | Component | Status Target |
 |---|---|---|
-| 1 | Clean dataset with splits (MIMIC-CXR or CheXpert Plus) | ✅ Must have |
+| 1 | Clean CheXpert dataset with patient-level splits | ✅ Must have |
 | 2 | Image embeddings from pretrained BioViL-T/MedCLIP | ✅ Must have |
 | 3 | Text embeddings from BioLinkBERT on impressions | ✅ Must have |
 | 4 | FAISS retrieval: top-3 similar cases for a test X-ray | ✅ Must have |
 | 5 | LLM generates Findings + Impression from retrieved context | ✅ Must have |
 | 6 | BLEU + ROUGE + CheXbert F1 numbers vs. reference | ✅ Must have |
 | 7 | Contrastive fine-tuning (Recall@K improvement) | 🔄 Show progress / preliminary numbers |
-| 8 | Multi-view and temporal fusion ablation | 🔄 Stretch goal |
+| 8 | Multi-view fusion ablation; temporal fusion only if valid longitudinal links exist | 🔄 Stretch goal |
 
 > [!TIP]
 > For the demo: pick 3 test X-rays with different pathology profiles (e.g., Pleural Effusion, Pneumothorax, No Finding). Show: (1) the image, (2) top-3 retrieved impressions, (3) the LLM-generated report, (4) the reference report, (5) the metric scores.
@@ -416,26 +415,26 @@ Run on the same val/test set, same protocol:
 
 | Risk | Mitigation |
 |---|---|
-| MIMIC-CXR access takes time (PhysioNet approval) | Start with CheXpert Plus (already EDA'd) as primary — switch when MIMIC ready |
-| Image download too slow / large | Use 20K-study frontal-only subset for prototype |
+| Dataset access / storage | Keep CheXpert as the single primary dataset; begin with the already-EDA'd report-bearing CheXpert release |
+| Image download too slow / large | Start with a controlled CheXpert subset, preferably frontal-only for the first retrieval baseline, then add lateral views |
 | Contrastive training takes > 4 days | Present pretrained-encoder-only retrieval as Baseline B; show improvement trend |
 | LLM API costs | Use Mistral-7B locally via Ollama (free, runs on 8GB VRAM) |
-| `section_findings` absent in 73% of CheXpert records | Always fallback to `section_impression` (99.93% coverage) |
-| Patient leakage in longitudinal retrieval | Strictly never index val/test records; enforce at FAISS build time |
+| Report sections sparse | Use `section_impression` as the primary text target; use `section_findings` when available and explicitly record the fallback rate |
+| Patient leakage | Create patient-level train/val/test splits and never index validation/test records into the training retrieval store |
 | CheXbert setup complexity | Pre-compute CheXbert labels offline; load pre-extracted label files for eval |
 | RadGraph setup too complex for timeline | Skip RadGraph F1; focus on CheXbert F1 + BERTScore as clinical proxy |
 
 ---
 
-## 🚀 Immediate Next Steps (Today, Sep 28)
+## 🚀 Immediate Next Steps (Today, Oct 2)
 
 > [!IMPORTANT]
 > These must be started today.
 
-1. **All 3:** Create shared GitHub repo + Google Drive folder for data, checkpoints, and results
-2. **Person A:** Apply for MIMIC-CXR on PhysioNet (takes 1–3 days for approval); meanwhile use CheXpert Plus to build the pipeline
-3. **Person B:** `pip install transformers faiss-cpu sentence-transformers sacrebleu rouge-score bert-score`; test BioLinkBERT encoding on 100 rows from `impression.csv`
-4. **Person C:** Open all 5 EDA notebooks; extract top-10 statistics for the presentation deck; set up CheXbert evaluation script
+1. **All 3:** Freeze CheXpert data version, create shared GitHub repo + Google Drive folder for data, checkpoints, embeddings and results
+2. **Person A:** Build the CheXpert study/image table and patient-level train/val/test split; start with frontal images
+3. **Person B:** `pip install transformers faiss-cpu sentence-transformers sacrebleu rouge-score bert-score`; test text encoding on 100 CheXpert report records
+4. **Person C:** Finalize CheXpert EDA statistics, pathology distribution and report-coverage summary; set up CheXbert evaluation
 
 ---
 
@@ -452,5 +451,5 @@ Run on the same val/test set, same protocol:
 
 ---
 
-*Plan generated: 2026-09-28*
+*Plan updated: 2026-10-02 — primary dataset changed to CheXpert*
 *Sources: `synopsis_report.docx`, `Complete_STREAM_Multimodal_RAG_Methodology.docx`, `chexpert_plus_eda_report.md`, `chexpert_plus_repositories.md`, `df_chexpert_plus_240401_metadata.json`*
